@@ -58,6 +58,7 @@ function build_executables() {
         clang++                                                                \
             --std=c++1y                                                        \
             -stdlib=libc++                                                     \
+            -pthread                                                           \
             -ggdb3                                                             \
             -O3                                                                \
             -I${dir}                                                           \

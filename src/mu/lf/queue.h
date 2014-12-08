@@ -20,8 +20,8 @@ namespace lf {
 /// Blocking Concurrent Queue Algorithms" by Michael and Scott.  The
 /// implementation uses a lock free stack for the node free list.
 ///
-/// Memory is allocated on construction to provide initial capacity.  Allocation and
-/// deallocation are not required if this capacity is not exceeded.
+/// Memory is allocated on construction to provide initial capacity.  Allocation
+/// and deallocation are not required if this capacity is not exceeded.
 ///
 /// Mutating methods provide the strong exception safety guarantee.
 ///
@@ -105,15 +105,15 @@ private:
         std::atomic<node*> next_;
     };
 
-    void destroy() noexcept;        /// Destroy the instance by freeing all resources.
-    node* alloc_node();             /// Get a free node, increasing capacity if necessary.
+    void destroy() noexcept;        /// Free all instance resources.
+    node* alloc_node();             /// Return a free or newly allocated node.
     void free_node(node*);          /// Release to pool of free nodes.
     bool dequeue(T&);
     void enqueue(node* const) noexcept;
 
     std::atomic<size_t> capacity_;  /// Total capacity, free + used nodes.
-    std::atomic<node*> head_;       /// Sentinel.  head_->next_ points to first node.
-    std::atomic<node*> tail_;       /// Tail.  If empty or singleton point to head_->next_.
+    std::atomic<node*> head_;       /// Sentinel.  head_->next_ points to first.
+    std::atomic<node*> tail_;       /// Tail.  Points head_->next_ if empty.
     stack<node*> free_;             /// Free node list.
 };
 

@@ -5,6 +5,10 @@
 #include <thread>
 #include <vector>
 
+#ifdef BOOST_LFQ
+#include <boost/lockfree/queue.hpp>
+#endif // BOOST_LFQ
+
 #include <mu/lf/queue.h>
 
 using namespace std;
@@ -33,8 +37,45 @@ struct foo {
     size_t id_;
 };
 
+#ifdef BOOST_LFQ
+
+template<typename T>
+class boost_lfq_wrapper {
+public:
+    boost_lfq_wrapper() : q_(queue<T>::DEFAULT_INITIAL_CAPACITY) {}
+
+    optional<T> pop()
+    {
+        T v;
+        optional<T> o;
+        if (q_.pop(v))
+            o = std::experimental::make_optional<T>(move(v));
+        return o;
+    }
+
+    void push(T const & v)
+    {
+        q_.push(v);
+    }
+
+    bool empty()
+    {
+        return q_.empty();
+    }
+
+    size_t capacity() { return 0; }
+
+private:
+    boost::lockfree::queue<T> q_;
+};
+
+#endif  // BOOST_LFQ
+
+#ifndef BOOST_LFQ
 typedef queue<foo> q_t;
-typedef q_t::value_type e_t;
+#else
+typedef boost_lfq_wrapper<foo> q_t;
+#endif // BOOST_LFQ
 
 // Synchronize output stream operations.
 static mutex g_io_mutex;
@@ -49,7 +90,7 @@ void produce(size_t element_count, size_t id_offset, q_t& q)
     }
 
     for (size_t i = 0; i < element_count; ++i) {
-        q.emplace(e_t(id++));
+        q.push(id++);
     }
     --id;
 
@@ -69,7 +110,7 @@ void consume(size_t element_count, q_t& q, vector<size_t>& consumed)
     size_t attempt_count = 0;
     size_t consumed_count = 0;
     while (consumed_count < element_count) {
-        optional<e_t> e = q.pop();
+        optional<foo> e = q.pop();
         if (e) {
             ++consumed_count;
             attempt_count = 0;
@@ -111,11 +152,13 @@ void test_concurrent_producers_consumers(
         vector<thread> producers;
         for (size_t j = 0; j < producer_count; ++j) {
             size_t offset = (element_count / producer_count) * j;
-            producers.emplace_back(thread(produce, count_per_producer, offset, ref(q)));
+            producers.emplace_back(
+                    thread(produce, count_per_producer, offset, ref(q)));
         }
         vector<thread> consumers;
         for (size_t j = 0; j < consumer_count; ++j) {
-            consumers.emplace_back(thread(std::bind(consume, count_per_consumer, ref(q), ref(consumed))));
+            consumers.emplace_back(
+                    thread(consume, count_per_consumer, ref(q), ref(consumed)));
         }
 
         for (auto &t : producers) {
@@ -131,8 +174,9 @@ void test_concurrent_producers_consumers(
             }
         }
     }
+    cout << "capacity " << q.capacity() << endl;
     if (!q.empty()) {
-        cout << "queue not empty: " << q << endl;
+        cerr << "queue not empty" << endl;
     }
     assert(q.empty());
 }
@@ -153,7 +197,8 @@ int main(int argc, char** argv)
     int consumer_count = atoi(argv[2]);
     int element_count = atoi(argv[3]);
     int iterations = argc > 4 ? atoi(argv[4]) : 1;
-    if (producer_count < 1 || consumer_count < 1 || element_count < 1 || iterations < 1) {
+    if (producer_count < 1 || consumer_count < 1 || element_count < 1 ||
+             iterations < 1) {
         cerr << "parameters must each be > 0" << endl;
         cerr << usage(argv[0]) << endl;
         exit(1);
