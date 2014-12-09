@@ -5,6 +5,13 @@
 
 #include <algorithm>
 
+/// \file
+///
+/// Pointer counting is implemented by tagging the unused high (most
+/// significant) bits of pointers.  On x86-64 where only the low 48 bits of 64
+/// bit pointer types are used, the tags are 16 bits wide allowing for counts of
+/// up to 65535.
+
 namespace mu {
 namespace lf {
 
@@ -20,42 +27,39 @@ static_assert(TAG_SHIFT_COUNT == 48, "tag shif not 48 bits");
 /// Mask the bits that can be used tagging on x86_64.
 constexpr const uintptr_t TAG_MASK = std::numeric_limits<uintptr_t>::max() << TAG_SHIFT_COUNT;
 
-/// Remove tag from pointer \c p.
+/// Clear the pointer's tag.
+///
+/// \param p
 /// \post \code p & TAG_MASK == 0 \endcode.
-template <typename T> T* untag(const T*);
+template <typename T> T* untag(const T* p);
 
-/// \param p a pointer.
+/// Get the pointer's current tag.
+///
+/// \param p
 /// \return the tag from pointer \c p.
 template <typename T> tag_t get_tag(const T* const);
 
-/// Tag or increment the tag of the pointer \c p.
+/// Increment pointer \c p's tag.
 template <typename T>
-T* tag(const T* const p)
+T* inctag(const T* const p)
 {
-    // Get the current tag and increment it.
-    uintptr_t tag = reinterpret_cast<uintptr_t>(p) >> TAG_SHIFT_COUNT;
-    ++tag;
-    tag <<= TAG_SHIFT_COUNT;
-
-    auto r = reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(untag(p)) | tag);
-    assert(untag(r)->next_ || !untag(r)->next_);
-    return r;
+    return tag(p, get_tag(p) + 1);
 }
 
-/// \param p a pointer.
-/// \param tag a tag.
-/// \return \p tagged with \c tag.
+/// Set a pointer's tag with the specified tag.
+///
+/// \param p A pointer.
+/// \param tag A tag.
+/// \return \c p tagged with \c tag.
 template <typename T>
-T* tag(const T* const p, const tag_t tag)
+T* tag(const T* const p, const tag_t t)
 {
-    auto r =
-            reinterpret_cast<T*>(
-                    reinterpret_cast<uintptr_t>(untag(p)) | (static_cast<uintptr_t>(tag) << TAG_SHIFT_COUNT));
-    assert(untag(r) == nullptr || untag(r)->value_.id_ < 0xfffffffff);
-    return r;
+    const uintptr_t up = reinterpret_cast<uintptr_t>(untag(p));
+    const uintptr_t ut = static_cast<uintptr_t>(t) << TAG_SHIFT_COUNT; 
+    return reinterpret_cast<T*>(up | ut);
 }
 
-/// \return the tag from pointer \c p.
+/// \return pointer \c p's tag.
 template <typename T>
 tag_t get_tag(const T* const p)
 {
@@ -65,12 +69,7 @@ tag_t get_tag(const T* const p)
 template <typename T>
 T* untag(const T* const p)
 {
-    auto r = reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(p) & ~TAG_MASK);
-    if (r == nullptr) {
-        return r;
-    }
-    assert(r == nullptr || r->value_.id_ < 0xfffffffff);
-    return r;
+    return reinterpret_cast<T*>(reinterpret_cast<uintptr_t>(p) & ~TAG_MASK);
 }
 
 } // namespace lf

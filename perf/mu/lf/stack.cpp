@@ -141,7 +141,7 @@ void produce(size_t element_count, size_t id_offset, stack<foo>& foos)
 void consume(
         size_t element_count,
         stack<foo>& foos,
-        vector<bool_cl>& consumed_foos)
+        vector<bool_cl>& consumed)
 {
     {
         lock_guard<mutex> l(g_io_mutex);
@@ -154,7 +154,7 @@ void consume(
         auto foo = foos.pop();
         if (foo) {
             ++n;
-            consumed_foos[foo->id_] = true;
+            consumed[foo->id_] = true;
         }
     }
 
@@ -174,11 +174,11 @@ void test_concurrent_produce_consume(
     stack<foo> stack;
 
     for (size_t j = 0; j < iterations; ++j) {
-        // The foo IDs to push and pop.
-        vector<bool_cl> consumed_foos;
-        consumed_foos.reserve(element_count);
+        // Track consumed IDs.
+        vector<bool_cl> consumed;
+        consumed.reserve(element_count);
         for (size_t i = 0; i < element_count; ++i) {
-            consumed_foos[i] = false;
+            consumed[i] = false;
         }
 
         size_t const elements_per_producer = element_count/producer_count;
@@ -204,7 +204,7 @@ void test_concurrent_produce_consume(
                             consume,
                             elements_per_consumer,
                             ref(stack),
-                            ref(consumed_foos)));
+                            ref(consumed)));
         }
 
         // Wait.
@@ -218,12 +218,12 @@ void test_concurrent_produce_consume(
         // Verify.
         bool found_unconsumed = false;
         for (size_t i = 0; i < element_count; ++i) {
-            if (!consumed_foos[i]) {
+            if (!consumed[i]) {
                 if (!found_unconsumed) {
                     cerr << "unconsumed: ";
                 }
                 found_unconsumed = true;
-                cerr << consumed_foos[i] << " ";
+                cerr << i << " ";
             }
         }
         if (found_unconsumed) {

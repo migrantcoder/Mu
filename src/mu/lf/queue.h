@@ -138,9 +138,8 @@ queue<T>::queue(size_t const initial_capacity_count) :
 {
     // Provision initial, free capacity.
     try {
-        for (size_t i = 0; i < initial_capacity_count; ++i) {
+        for (size_t i = 0; i < initial_capacity_count; ++i)
             free_.push(new node());
-        }
         node* n = alloc_node();
         head_ = n;
         tail_ = n;
@@ -276,9 +275,9 @@ bool queue<T>::dequeue(T& value)
         // If T's copy assignment operator throws, the queue state is unchanged.
         value = untag(n)->value_;
         auto old = h;
-        if (!head_.compare_exchange_strong(h, tag(n, get_tag(h) + 1))) {
+        if (!head_.compare_exchange_strong(h, tag(n, get_tag(h) + 1)))
             continue;
-        }
+
         // Free the old head.
         free_node(old);
         return true;
@@ -295,9 +294,8 @@ template <typename T>
 void queue<T>::print(std::ostream& os) const
 {
     os << "q={";
-    for (auto i = head_.load(); i != nullptr; i = untag(i)->next_) {
+    for (auto i = head_.load(); i != nullptr; i = untag(i)->next_)
         os << untag(i)->value_.id_ << ", ";
-    }
     os << "}";
 }
 

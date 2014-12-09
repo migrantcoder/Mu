@@ -104,7 +104,7 @@ void stack<T>::destroy()
 
     node* n = nullptr;
     while (free_.pop(n)) {
-        delete n;
+        delete untag(n);
     }
 }
 
@@ -112,11 +112,10 @@ template <typename T>
 void stack<T>::push(T const& v)
 {
     node* n = nullptr;
-    if (!free_.pop(n)) {
+    if (!free_.pop(n))
         n = new node(v);
-    }
 
-    n->value_ = v;
+    untag(n)->value_ = v;
     stack_.push(n);
 }
 
@@ -131,11 +130,11 @@ void stack<T>::emplace(T&& v)
     }
 
     try {
-        n->value_ = std::move(v);
+        untag(n)->value_ = std::move(v);
         stack_.push(n);
     } catch (...) {
         if (allocated) {
-            delete n;
+            delete untag(n);
         } else {
             free_.push(n);
         }
@@ -147,8 +146,8 @@ bool stack<T>::pop(T& out)
 {
     node* n = nullptr;
     if (stack_.pop(n)) {
-        out = n->value_;
-        n->value_ = T();
+        out = untag(n)->value_;
+        untag(n)->value_ = T();
         return true;
     }
     return false;
@@ -163,8 +162,8 @@ optional<T> stack<T>::pop()
     node* n = nullptr;
     optional<T> t;
     if (stack_.pop(n)) {
-        t = make_optional<T>(move(n->value_));
-        n->value_ = move(T());
+        t = make_optional<T>(move(untag(n)->value_));
+        untag(n)->value_ = move(T());
     }
     return t;
 }
@@ -172,7 +171,7 @@ optional<T> stack<T>::pop()
 template <typename T>
 void stack<T>::for_each(const std::function<void (T&)>& f) const
 {
-    stack_.for_each([&f] (node* n) { f(n->value_); });
+    stack_.for_each([&f] (node* n) { f(untag(n)->value_); });
 }
 
 } // namespace lf

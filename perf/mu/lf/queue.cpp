@@ -138,47 +138,64 @@ void test_concurrent_producers_consumers(
         size_t element_count,
         size_t iterations)
 {
+    // The queue instance to test.
     q_t q;
+
     for (size_t i = 0; i < iterations; ++i) {
         size_t count_per_consumer = element_count / consumer_count;
         size_t count_per_producer = element_count / producer_count;
 
+        // Track consumed IDs.
         vector<size_t> consumed;
         consumed.reserve(element_count);
         for (size_t j = 0; j < element_count; ++j) {
             consumed[j] = 0;
         }
 
+        // Produce.
         vector<thread> producers;
         for (size_t j = 0; j < producer_count; ++j) {
             size_t offset = (element_count / producer_count) * j;
             producers.emplace_back(
                     thread(produce, count_per_producer, offset, ref(q)));
         }
+
+        // Consume.
         vector<thread> consumers;
         for (size_t j = 0; j < consumer_count; ++j) {
             consumers.emplace_back(
                     thread(consume, count_per_consumer, ref(q), ref(consumed)));
         }
 
-        for (auto &t : producers) {
-            t.join();
-        }
+        // Wait.
         for (auto &t : consumers) {
             t.join();
         }
+        for (auto &t : producers) {
+            t.join();
+        }
 
+        // Verify.
+        bool found_unconsumed = false;
         for (size_t j = 0; j < element_count; ++j) {
             if (!consumed[j]) {
-                cout << j << " unconsumed" << endl;
+                if (!found_unconsumed) {
+                    cerr << "unconsumed: ";
+                }
+                found_unconsumed = true;
+                cerr << j << " ";
             }
         }
+        if (found_unconsumed) {
+            cerr << endl;
+            cerr << "stopping" << endl;
+            break;
+        }
+
+        assert(q.empty());
     }
+
     cout << "capacity " << q.capacity() << endl;
-    if (!q.empty()) {
-        cerr << "queue not empty" << endl;
-    }
-    assert(q.empty());
 }
 
 string usage(char const * const program)
