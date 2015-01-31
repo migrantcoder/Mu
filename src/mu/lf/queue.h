@@ -8,7 +8,6 @@
 #include <cstddef>
 
 #include <mu/lf/stack.h>
-#include <mu/lf/tag.h>
 #include <mu/optional.h>
 
 namespace mu {
@@ -45,7 +44,7 @@ private:
     struct node;
 
 public:
-    typedef T value_type;
+    using value_type = T;
 
     constexpr static const size_t DEFAULT_INITIAL_CAPACITY = 8192;
 
@@ -102,19 +101,19 @@ private:
     struct node {
         node() : value_(), next_(nullptr) {}
         T value_;
-        std::atomic<node*> next_;
+        tagged_ptr<node> next_;
     };
 
-    void destroy() noexcept;        /// Free all instance resources.
-    node* alloc_node();             /// Return a free or newly allocated node.
-    void free_node(node*);          /// Release to pool of free nodes.
+    void destroy() noexcept;            /// Free all instance resources.
+    tagged_ptr<node> alloc_node();      /// Return a free or newly allocated node.
+    void free_node(tagged_ptr<node>);   /// Release to pool of free nodes.
     bool dequeue(T&);
-    void enqueue(node* const) noexcept;
+    void enqueue(tagged_ptr<node>) noexcept;
 
     std::atomic<size_t> capacity_;  /// Total capacity, free + used nodes.
-    std::atomic<node*> head_;       /// Sentinel.  head_->next_ points to first.
-    std::atomic<node*> tail_;       /// Tail.  Points head_->next_ if empty.
-    stack<node*> free_;             /// Free node list.
+    tagged_ptr<node> head_;         /// Sentinel.  head_->next_ points to first.
+    tagged_ptr<node> tail_;         /// Tail.  Points head_->next_ if empty.
+    stack<tagged_ptr<node>> free_;  /// Free node list.
 };
 
 template <typename T>
@@ -123,9 +122,9 @@ void queue<T>::destroy() noexcept
     assert(empty());
 
     while (!free_.empty()) {
-        node* n;
+        tagged_ptr<node> n;
         free_.pop(n);
-        delete untag(n);
+        delete n;
     }
 }
 
@@ -138,19 +137,17 @@ queue<T>::queue(size_t const initial_capacity_count) :
 {
     // Provision initial, free capacity.
     try {
-        for (size_t i = 0; i < initial_capacity_count; ++i)
-            free_.push(new node());
-        node* n = alloc_node();
+        for (size_t i = 0; i < initial_capacity_count; ++i) {
+            tagged_ptr<node> n(new node());
+            free_.push(n);
+        }
+        tagged_ptr<node> n(alloc_node());
         head_ = n;
         tail_ = n;
     } catch (...) {
         destroy();
         throw;
     }
-
-    assert(untag(head_.load())->next_ == nullptr);
-    assert(untag(tail_.load())->next_ == nullptr);
-    assert(untag(head_.load()) == untag(tail_.load()));
 }
 
 template <typename T> queue<T>::queue() : queue(DEFAULT_INITIAL_CAPACITY) {}
@@ -158,9 +155,9 @@ template <typename T> queue<T>::queue() : queue(DEFAULT_INITIAL_CAPACITY) {}
 template <typename T> queue<T>::~queue() { destroy(); }
 
 template <typename T>
-typename queue<T>::node* queue<T>::alloc_node()
+tagged_ptr<typename queue<T>::node> queue<T>::alloc_node()
 {
-    node* n = nullptr;
+    tagged_ptr<node> n;
     if (!free_.pop(n)) {
         n = new node();
         ++capacity_;
@@ -170,18 +167,17 @@ typename queue<T>::node* queue<T>::alloc_node()
 
 
 template <typename T>
-void queue<T>::free_node(node* const e)
+void queue<T>::free_node(tagged_ptr<node> e)
 {
-    assert(untag(e));
     free_.push(e);
 }
 
 template <typename T>
 void queue<T>::push(T const & value)
 {
-    node* n = alloc_node();
+    tagged_ptr<node> n = alloc_node();
     try {
-        untag(n)->value_ = value;
+        n->value_ = value;
     } catch (...) {
         free_node(n);
         throw;
@@ -192,9 +188,9 @@ void queue<T>::push(T const & value)
 template <typename T>
 void queue<T>::emplace(T&& value)
 {
-    node* n = alloc_node();
+    tagged_ptr<node> n = alloc_node();
     try {
-        untag(n)->value_ = std::move(value);
+        n->value_ = std::move(value);
     } catch (...) {
         delete n;
         throw;
@@ -203,34 +199,33 @@ void queue<T>::emplace(T&& value)
 }
 
 template <typename T>
-void queue<T>::enqueue(node* const n) noexcept
+void queue<T>::enqueue(tagged_ptr<node> const n) noexcept
 {
-    node* tail = nullptr;
-    node* next = nullptr;
-    untag(n)->next_ = nullptr;
+    tagged_ptr<node> tail;
+    tagged_ptr<node> next;
+    n->next_ = nullptr;
 
     while (true) {
-        tail = tail_;               // The (t)ail.
-        next = untag(tail)->next_;  // The (n)ext node.
+        tail = tail_;       // The (t)ail.
+        next = tail->next_; // The (n)ext node.
 
         // Verify read of tail_ and tail_->next_ is consistent.
         if (tail != tail_)
             continue;
 
-        if (untag(next) == nullptr) {
+        if (!next) {
             // Attempt to link in the new node.
-            auto tagged_node = tag(n, get_tag(next) + 1);
-            if (untag(tail)->next_.compare_exchange_strong(next, tagged_node))
+            if (tail->next_.compare_set_strong(next, n.set_tag(next).increment_tag()))
                 break;
         } else {
             // The tail pointer has fallen behind, attempt to move it along.
-            tail_.compare_exchange_strong(tail, tag(next, get_tag(tail) + 1));
+            tail_.compare_set_strong(tail, next.set_tag(tail).increment_tag());
             continue;
         }
     }
 
     // If this update fails, the next en/dequeue will update the tail pointer.
-    tail_.compare_exchange_strong(tail, tag(n, get_tag(tail) + 1));
+    tail_.compare_set_strong(tail, n.set_tag(tail).increment_tag());
 }
 
 template <typename T> bool queue<T>::pop(T& out) { return dequeue(out); }
@@ -252,30 +247,32 @@ bool queue<T>::dequeue(T& value)
 {
     while (true) {
         // Read the state in an order allowing consistency verification.
-        node* h = head_;                 // The (h)ead.
-        node* t = tail_;                 // The (t)ail.
-        node* n = untag(h)->next_;       // The (n)ext node.
+        tagged_ptr<node> h = head_;     // The (h)ead.
+        tagged_ptr<node> t = tail_;     // The (t)ail.
+        tagged_ptr<node> n = h->next_;  // The (n)ext node.
 
         // Verify read of head_, tail_ and head_->next_ is consistent.
         if (h != head_)
             continue;
 
         if (h == t) {
-            if (untag(n) == nullptr) {
+            if (!n) {
                 // The queue is empty.
                 return false;
             } else {
                 // The tail pointer has fallen behind, attempt to move it along.
-                tail_.compare_exchange_strong(t, tag(n, get_tag(t) + 1));
+                tail_.compare_set_strong(t, n.set_tag(t).increment_tag());
                 continue;
             }
         }
 
+        assert(n);
+
         // Copy out the first node's value and dequeue it.
         // If T's copy assignment operator throws, the queue state is unchanged.
-        value = untag(n)->value_;
+        value = n->value_;
         auto old = h;
-        if (!head_.compare_exchange_strong(h, tag(n, get_tag(h) + 1)))
+        if (!head_.compare_set_strong(h, n.set_tag(h.increment_tag())))
             continue;
 
         // Free the old head.
@@ -294,8 +291,8 @@ template <typename T>
 void queue<T>::print(std::ostream& os) const
 {
     os << "q={";
-    for (auto i = head_.load(); i != nullptr; i = untag(i)->next_)
-        os << untag(i)->value_.id_ << ", ";
+    for (auto i = head_; i != nullptr; i = i->next_)
+        os << i->value_.id_ << ", ";
     os << "}";
 }
 

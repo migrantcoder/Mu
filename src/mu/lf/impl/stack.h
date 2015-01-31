@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <iostream>
 
-#include <mu/lf/tag.h>
+#include <mu/tagged_ptr.h>
 
 namespace mu {
 namespace lf {
@@ -36,17 +36,15 @@ namespace impl {
 template <typename T>
 class stack {
 public:
-    typedef T value_type;
-
     /// \pre  \c std::atomic<T*>::is_lock_free() is \c true.
-    stack() : head_(nullptr) { assert( head_.is_lock_free()); }
+    stack() : head_(nullptr) { assert(head_.is_lock_free()); }
     stack(const stack&) = delete;
     stack& operator=(const stack&) = delete;
     /// \pre is \c empty()
     ~stack() { assert(empty()); }
 
     /// \param t a valid pointer to a \c T t.
-    void push(T* t);
+    void push(tagged_ptr<T> t);
 
     /// Attempt to pop the top of the stack.
     ///
@@ -54,44 +52,41 @@ public:
     /// \return \c true iff successful.
     ///
     /// \post \code out == nullptr || out->next_ == nullptr \endcode 
-    bool pop(T*& out);
+    bool pop(tagged_ptr<T>& out);
 
-    bool empty() const { return untag(head_.load()) == nullptr; }
+    bool empty() const { return !head_; }
 
     /// Not safe for concurrent invocation.
     void for_each(const std::function<void (T*)>& ) const;
 
 private:
-    std::atomic<T*> head_;
+    tagged_ptr<T> head_;
 };
 
 template <typename T>
-void stack<T>::push(T* const e)
+void stack<T>::push(tagged_ptr<T> e)
 {
-    using mu::lf::tag;
-
-    assert(e != nullptr);
-
     while (true) {
-        T* h = head_;
-        untag(e)->next_ = h;
-        if (head_.compare_exchange_strong(h, inctag(e)))
+        // Link the new element to a snapshot of the head. Attempt to make the
+        // new element the head, or repeat if the snapshot has been invalidated.
+        auto h = head_;
+        e->next_ = h;
+        if (head_.compare_set_strong(h, e.increment_tag()))
             break;
     }
 }
 
 template <typename T>
-bool stack<T>::pop(T*& e)
+bool stack<T>::pop(tagged_ptr<T>& e)
 {
-    using mu::lf::tag;
-    using mu::lf::untag;
-
     while (true) {
-        T* h = head_;
-        if (untag(h) == nullptr)
-            return false;
-        T* n = untag(h)->next_;
-        if (head_.compare_exchange_strong(h, inctag(n))) {
+        // Snapshot head pointer before attempting to detach the head element by
+        // setting the heade pointer to snapshot's next pointer.
+        auto h = head_;
+        if (!h)
+            return false;                                       // Empty stack.
+        auto n = h->next_;
+        if (head_.compare_set_strong(h, n.increment_tag())) {
             e = h;
             return true;
         }
@@ -101,7 +96,7 @@ bool stack<T>::pop(T*& e)
 template <typename T>
 void stack<T>::for_each(const std::function<void (T*)>& f) const
 {
-    for (T* t = head_; t != nullptr; t = untag(t)->next_)
+    for (auto t = head_; t != nullptr; t = t->next_)
         f(t);
 }
 
