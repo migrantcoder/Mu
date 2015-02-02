@@ -2,6 +2,9 @@
 
 # Run from project root.
 
+# Pass args to compiler.
+CC_ARGS=${@:2}
+
 BUILDDIR=build
 SRCDIR=src
 TSTDIR=tst
@@ -72,6 +75,7 @@ function build_executables() {
             -Wno-missing-prototypes                                            \
             -o ${BUILDDIR}/${executable_name}                                  \
             $source_name                                                       \
+            $CC_ARGS                                                           \
         ;
     done
 }

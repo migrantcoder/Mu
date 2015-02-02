@@ -206,8 +206,8 @@ void queue<T>::enqueue(tagged_ptr<node> const n) noexcept
     n->next_ = nullptr;
 
     while (true) {
-        tail = tail_;       // The (t)ail.
-        next = tail->next_; // The (n)ext node.
+        tail = tail_;
+        next = tail->next_;
 
         // Verify read of tail_ and tail_->next_ is consistent.
         if (tail != tail_)
