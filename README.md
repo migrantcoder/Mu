@@ -1,7 +1,8 @@
-Minimalist utility libraries for C++14.
+Minimalist utility libraries for C++14, including lock free, non-blocking data
+structures.
 
-Mu requires C++ 14 and supports x86_64 on Linux and OS X. The library is built
-and tested on Linux and OS X using clang 3.5.
+Mu requires C++14 and supports x86_64 and i386 architectures. The library is
+built and tested on Linux and OS X using clang 3.5.
 
 Mu is licensed under the terms of the GPL v2 as per
 http://www.gnu.org/licenses/gpl-2.0.html.
