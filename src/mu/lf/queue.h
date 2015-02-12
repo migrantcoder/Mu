@@ -13,11 +13,11 @@
 namespace mu {
 namespace lf {
 
-/// A lock free queue.
+/// A lock-free, multi-producer multi-consumer, unbounded queue.
 ///
 /// The implementation is based on "Simple, Fast, and Practical Non-Blocking and
 /// Blocking Concurrent Queue Algorithms" by Michael and Scott.  The
-/// implementation uses a lock free stack for the node free list.
+/// implementation uses a lock-free stack for the node free list.
 ///
 /// Memory is allocated on construction to provide initial capacity.  Allocation
 /// and deallocation are not required if this capacity is not exceeded.

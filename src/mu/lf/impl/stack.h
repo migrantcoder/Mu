@@ -14,7 +14,7 @@ namespace mu {
 namespace lf {
 namespace impl {
 
-/// Lock free stack implemented by an intrusive singly linked list.
+/// Lock-free intrusive stack.
 ///
 /// \remark Pointer counting (tagging) is used to avoid ABA problems such as the
 ///         following.  Consider a pop operation on the stack \c A->B->C.
@@ -51,7 +51,7 @@ public:
     /// \param out The top iff successful, else \c nullptr.
     /// \return \c true iff successful.
     ///
-    /// \post \code out == nullptr || out->next_ == nullptr \endcode 
+    /// \post \code out == nullptr || out->next_ == nullptr \endcode
     bool pop(tagged_ptr<T>& out);
 
     bool empty() const { return !head_; }

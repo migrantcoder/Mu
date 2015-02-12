@@ -13,7 +13,7 @@
 namespace mu {
 namespace lf {
 
-/// A lock free stack.
+/// A lock-free unbounded stack.
 ///
 /// Memory is allocated on construction to provide initial capacity.  Allocation and
 /// deallocation are not required if this capacity is not exceeded.

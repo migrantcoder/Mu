@@ -3,7 +3,7 @@
 # Run from project root.
 
 # Pass args to compiler.
-CC_ARGS=${@:2}
+CC_ARGS=${@:1}
 
 BUILDDIR=build
 SRCDIR=src

@@ -11,13 +11,11 @@
 
 #include <mu/lf/stack.h>
 
-#define LOCKFREE 1
-
 /// Benchmark stack implementations with the following runtime parameters
 ///
 /// - consumers (1 thread per consumer)
 /// - producers (1 thread per producer)
-/// - total number of elements to  produce
+/// - total number of elements to produce
 ///
 /// The stack implementation can be changed at compile time.
 
@@ -32,98 +30,80 @@ struct foo {
     size_t id_;
 };
 
-// Cache line sized bool.
-struct bool_cl {
-    bool_cl() : bool_(0), padding_(0) {}
-    bool_cl(bool_cl const& lhs) : bool_(lhs.bool_), padding_(0) {}
-    ~bool_cl() = default;
+/// Word sized bool for use in concurrent access table to avoid lost updates.
+union bool_t {
+    bool_t() : bool_(0) {}
+    bool_t(bool_t const& lhs) : bool_(lhs.bool_) {}
+    ~bool_t() = default;
 
-    bool_cl& operator=(bool lhs)
-    {
-        bool_ = lhs;
-        padding_ = 0;
-        return *this;
-    }
+    bool_t& operator=(bool lhs) { bool_ = lhs; return *this; }
     operator bool() { return bool_; }
 
-    size_t bool_;
-    size_t padding_;
+    bool bool_;
+    uint64_t padding_;
 };
 
 /// Implementation wrapper.
 template <typename T>
-class stack {
+class locking_stack {
 public:
-    stack() : stack_() {}
+    locking_stack() : stack_() {}
 
     void push(T& e)
     {
-#ifdef LOCKFREE
-        stack_.push(e);
-#else
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         stack_.push_front(e);
-#endif
     }
 
     void emplace(T&& e)
     {
-#ifdef LOCKFREE
-        stack_.emplace(move(e));
-#else
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         stack_.push_front(e);
-#endif
     }
 
     bool pop(T& e)
     {
-#ifdef LOCKFREE
-        return stack_.pop(e);
-#else
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         if (stack_.empty()) {
             return false;
         }
         e = stack_.front();
         stack_.pop_front();
         return true;
-#endif
     }
 
     mu::optional<T> pop()
     {
-#ifdef LOCKFREE
-        return stack_.pop();
-#else
-        lock_guard<mutex> l(g_io_mutex);
-        if (stack_.empty()) {
-            return false;
+        T e;
+        mu::optional<T> o;
+        if (pop(e)) {
+            o = make_optional<T>(move(e));
         }
-        e = stack_.front();
-        stack_.pop();
-        return make_optional<T>(move(e));
-#endif
+        return o;
     }
 
     bool empty() const { return stack_.empty(); }
 
 private:
-#ifdef LOCKFREE
-    mu::lf::stack<T> stack_;
-#else
     mutex _mutex;
     list<T> stack_;
-#endif
 };
 
+#if defined(LOCKING)
+using stack = locking_stack<foo>;
+constexpr static const char* g_stack_type = "locking_stack";
+#else
+using stack = mu::lf::stack<foo>;
+constexpr static const char* g_stack_type = "mu::lf::stack";
+#endif
+
 /// Produce \c element_count foos.
-void produce(size_t element_count, size_t id_offset, stack<foo>& foos)
+void produce(size_t element_count, size_t id_offset, stack& foos)
 {
     size_t id = id_offset;
 
     {
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         cout << this_thread::get_id() << " - produce from ID " << id << endl;
     }
 
@@ -132,7 +112,7 @@ void produce(size_t element_count, size_t id_offset, stack<foo>& foos)
     }
 
     {
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         cout << this_thread::get_id() << " - produced to ID " << id << endl;
     }
 }
@@ -140,11 +120,11 @@ void produce(size_t element_count, size_t id_offset, stack<foo>& foos)
 /// Consume count elements.
 void consume(
         size_t element_count,
-        stack<foo>& foos,
-        vector<bool_cl>& consumed)
+        stack& foos,
+        vector<bool_t>& consumed)
 {
     {
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         cout << this_thread::get_id() << " - consume" << endl;
     }
 
@@ -159,7 +139,7 @@ void consume(
     }
 
     {
-        lock_guard<mutex> l(g_io_mutex);
+        lock_guard<mutex> _(g_io_mutex);
         cout << this_thread::get_id() << " - consumed " << n << endl;
     }
 }
@@ -171,11 +151,11 @@ void test_concurrent_produce_consume(
         const size_t iterations)
 {
     // The stack instance to test.
-    stack<foo> stack;
+    stack stack;
 
     for (size_t j = 0; j < iterations; ++j) {
         // Track consumed IDs.
-        vector<bool_cl> consumed;
+        vector<bool_t> consumed;
         consumed.reserve(element_count);
         for (size_t i = 0; i < element_count; ++i) {
             consumed[i] = false;
@@ -254,7 +234,7 @@ int main(int argc, char** argv)
     int iterations = argc > 4 ? atoi(argv[4]) : 1;
     if (producer_count < 1 ||
             consumer_count < 1 ||
-            element_count < 1 || 
+            element_count < 1 ||
             iterations < 1) {
         cerr << "parameters must each be > 0" << endl;
         cerr << usage(argv[0]) << endl;
@@ -270,6 +250,7 @@ int main(int argc, char** argv)
         cerr << usage(argv[0]) << endl;
         exit(1);
     }
+    cout << "using " << g_stack_type << endl;
     test_concurrent_produce_consume(
             static_cast<size_t>(producer_count),
             static_cast<size_t>(consumer_count),
